@@ -1,0 +1,164 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: big-data-lab8
+type: Opaque
+stringData:
+  MYSQL_ROOT_PASSWORD: root
+  MYSQL_DATABASE: big_data_lab8
+  MYSQL_USER: lab8
+  MYSQL_PASSWORD: lab8
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init-schema
+  namespace: big-data-lab8
+data:
+  001_schema.sql: |
+    CREATE DATABASE IF NOT EXISTS big_data_lab8;
+    USE big_data_lab8;
+
+    CREATE TABLE IF NOT EXISTS product_nutrition (
+      product_code VARCHAR(64),
+      product_name VARCHAR(255),
+      brands VARCHAR(255),
+      energy_kcal_100g DOUBLE,
+      fat_100g DOUBLE,
+      carbohydrates_100g DOUBLE,
+      sugars_100g DOUBLE,
+      proteins_100g DOUBLE,
+      salt_100g DOUBLE
+    );
+
+    CREATE TABLE IF NOT EXISTS dm_product_nutrition (
+      product_code VARCHAR(64),
+      product_name VARCHAR(255),
+      brands VARCHAR(255),
+      energy_kcal_100g DOUBLE NOT NULL,
+      fat_100g DOUBLE NOT NULL,
+      carbohydrates_100g DOUBLE NOT NULL,
+      sugars_100g DOUBLE NOT NULL,
+      proteins_100g DOUBLE NOT NULL,
+      salt_100g DOUBLE NOT NULL,
+      source_table VARCHAR(128) NOT NULL,
+      refreshed_at TIMESTAMP NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS dm_refresh_log (
+      run_id VARCHAR(80) NOT NULL,
+      source_table VARCHAR(128) NOT NULL,
+      mart_table VARCHAR(128) NOT NULL,
+      rows_in_source BIGINT NOT NULL,
+      rows_in_mart BIGINT NOT NULL,
+      dropped_rows BIGINT NOT NULL,
+      created_at TIMESTAMP NOT NULL,
+      PRIMARY KEY (run_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS dm_kmeans_clusters (
+      run_id VARCHAR(80) NOT NULL,
+      source_table VARCHAR(128) NOT NULL,
+      k INT NOT NULL,
+      seed INT NOT NULL,
+      sample_fraction DOUBLE NOT NULL,
+      rows_from_mart BIGINT NOT NULL,
+      rows_for_training BIGINT NOT NULL,
+      silhouette DOUBLE NOT NULL,
+      model_path VARCHAR(500) NOT NULL,
+      cluster_id INT NOT NULL,
+      cluster_count BIGINT NOT NULL,
+      avg_energy_kcal_100g DOUBLE,
+      avg_fat_100g DOUBLE,
+      avg_carbohydrates_100g DOUBLE,
+      avg_sugars_100g DOUBLE,
+      avg_proteins_100g DOUBLE,
+      avg_salt_100g DOUBLE,
+      created_at TIMESTAMP NOT NULL,
+      PRIMARY KEY (run_id, cluster_id)
+    );
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: big-data-lab8
+spec:
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: big-data-lab8
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mysql
+              containerPort: 3306
+          envFrom:
+            - secretRef:
+                name: mysql-secret
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD --silent
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD --silent
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+            - name: mysql-init-schema
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: mysql-init-schema
+          configMap:
+            name: mysql-init-schema
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

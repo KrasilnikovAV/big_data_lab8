@@ -1,0 +1,13 @@
+target/
+dist/
+!dist/
+!dist/big_data_lab8_kubernetes_model.zip
+outputs/
+.bsp/
+.idea/
+.metals/
+.scala-build/
+.DS_Store
+sbt
+__pycache__/
+*.pyc

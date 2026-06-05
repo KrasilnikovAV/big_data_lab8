@@ -1,0 +1,65 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: datamart-submit
+  namespace: big-data-lab8
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      containers:
+        - name: spark-submit
+          image: big-data-lab8-k8s:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: mysql-secret
+          env:
+            - name: MYSQL_URL
+              value: jdbc:mysql://mysql:3306/big_data_lab8?allowPublicKeyRetrieval=true&useSSL=false
+            - name: MYSQL_SOURCE_TABLE
+              value: product_nutrition
+            - name: MYSQL_MART_TABLE
+              value: dm_product_nutrition
+            - name: MYSQL_REFRESH_LOG_TABLE
+              value: dm_refresh_log
+            - name: OUTPUT_DIR
+              value: /app/outputs/datamart
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              /opt/spark/bin/spark-submit \
+                --master k8s://https://kubernetes.default.svc \
+                --deploy-mode cluster \
+                --name lab8-datamart \
+                --jars local:///opt/spark/jars/mysql-connector-j.jar \
+                --class DataMartApp \
+                --conf spark.kubernetes.namespace=big-data-lab8 \
+                --conf spark.kubernetes.container.image=big-data-lab8-k8s:latest \
+                --conf spark.kubernetes.container.image.pullPolicy=IfNotPresent \
+                --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark \
+                --conf spark.kubernetes.driverEnv.SPARK_MASTER= \
+                --conf spark.kubernetes.driverEnv.MYSQL_URL="${MYSQL_URL}" \
+                --conf spark.kubernetes.driverEnv.MYSQL_USER="${MYSQL_USER}" \
+                --conf spark.kubernetes.driverEnv.MYSQL_PASSWORD="${MYSQL_PASSWORD}" \
+                --conf spark.kubernetes.driverEnv.MYSQL_SOURCE_TABLE="${MYSQL_SOURCE_TABLE}" \
+                --conf spark.kubernetes.driverEnv.MYSQL_MART_TABLE="${MYSQL_MART_TABLE}" \
+                --conf spark.kubernetes.driverEnv.MYSQL_REFRESH_LOG_TABLE="${MYSQL_REFRESH_LOG_TABLE}" \
+                --conf spark.kubernetes.driverEnv.OUTPUT_DIR="${OUTPUT_DIR}" \
+                --conf spark.driver.cores=1 \
+                --conf spark.driver.memory=1g \
+                --conf spark.executor.instances=2 \
+                --conf spark.executor.cores=1 \
+                --conf spark.executor.memory=1g \
+                --conf spark.sql.shuffle.partitions=4 \
+                local:///app/target/scala-2.12/big-data-lab8-k8s-datamart.jar

@@ -1,0 +1,75 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: big_data_lab8
+      MYSQL_USER: lab8
+      MYSQL_PASSWORD: lab8
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./data/mysql_init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -proot --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mysql-loader:
+    build: .
+    image: big-data-lab8-k8s:latest
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_URL: jdbc:mysql://mysql:3306/big_data_lab8?allowPublicKeyRetrieval=true&useSSL=false
+      MYSQL_USER: lab8
+      MYSQL_PASSWORD: lab8
+      MYSQL_SOURCE_TABLE: product_nutrition
+      OPENFOODFACTS_INPUT: data/sample_openfoodfacts.csv
+    command: ["scripts/run_mysql_loader.sh"]
+
+  datamart:
+    build: .
+    image: big-data-lab8-k8s:latest
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mysql-loader:
+        condition: service_completed_successfully
+    environment:
+      MYSQL_URL: jdbc:mysql://mysql:3306/big_data_lab8?allowPublicKeyRetrieval=true&useSSL=false
+      MYSQL_USER: lab8
+      MYSQL_PASSWORD: lab8
+      MYSQL_SOURCE_TABLE: product_nutrition
+      MYSQL_MART_TABLE: dm_product_nutrition
+      MYSQL_REFRESH_LOG_TABLE: dm_refresh_log
+      OUTPUT_DIR: outputs/datamart
+    volumes:
+      - ./outputs:/app/outputs
+    command: ["scripts/run_datamart.sh"]
+
+  model:
+    build: .
+    image: big-data-lab8-k8s:latest
+    depends_on:
+      mysql:
+        condition: service_healthy
+      datamart:
+        condition: service_completed_successfully
+    environment:
+      MYSQL_URL: jdbc:mysql://mysql:3306/big_data_lab8?allowPublicKeyRetrieval=true&useSSL=false
+      MYSQL_USER: lab8
+      MYSQL_PASSWORD: lab8
+      MYSQL_SOURCE_TABLE: dm_product_nutrition
+      MYSQL_RESULTS_TABLE: dm_kmeans_clusters
+      OUTPUT_DIR: outputs/model_from_mart
+      KMEANS_K: "5"
+    volumes:
+      - ./outputs:/app/outputs
+    command: ["scripts/run_model.sh"]
+
+volumes:
+  mysql_data:

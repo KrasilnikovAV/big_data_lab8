@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lab5-model-submit
+  namespace: big-data-lab8
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      containers:
+        - name: spark-submit
+          image: big-data-lab5-model:latest
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              /opt/spark/bin/spark-submit \
+                --master k8s://https://kubernetes.default.svc \
+                --deploy-mode cluster \
+                --name lab5-model \
+                --conf spark.kubernetes.namespace=big-data-lab8 \
+                --conf spark.kubernetes.container.image=big-data-lab5-model:latest \
+                --conf spark.kubernetes.container.image.pullPolicy=IfNotPresent \
+                --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark \
+                --conf spark.driver.cores=1 \
+                --conf spark.driver.memory=1g \
+                --conf spark.executor.instances=2 \
+                --conf spark.executor.cores=1 \
+                --conf spark.executor.memory=1g \
+                --conf spark.sql.shuffle.partitions=4 \
+                local:///app/src/kmeans.py \
+                --spark-master k8s://https://kubernetes.default.svc \
+                --input /app/data/sample_openfoodfacts.csv \
+                --k 5 \
+                --output-dir /tmp/lab5_kmeans
