@@ -73,6 +73,13 @@ kubectl logs -n big-data-lab8 job/model-submit
 
 ## Сборка дистрибутива
 
+На macOS с Homebrew стоит запускать `sbt` на Java 17:
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
 ```bash
 ./build_distribution.sh
 ```

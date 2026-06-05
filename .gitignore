@@ -8,6 +8,5 @@ outputs/
 .metals/
 .scala-build/
 .DS_Store
-sbt
 __pycache__/
 *.pyc
