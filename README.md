@@ -25,6 +25,7 @@ Kubernetes `Job`.
 - `app/load_openfoodfacts_to_mysql.py` - источник данных, загрузка CSV в MySQL.
 - `src/main/scala/DataMartApp.scala` - витрина данных на Scala/Spark.
 - `app/kmeans_datamart.py` - модель KMeans на PySpark.
+- `data/sample_openfoodfacts.csv` - исходный sample-набор OpenFoodFacts.
 - `k8s/` - Kubernetes-манифесты.
 - `scripts/k8s_build_image.sh` - сборка Docker-образа.
 - `scripts/k8s_deploy.sh` - последовательный деплой контура.
@@ -70,6 +71,39 @@ kubectl exec -n big-data-lab8 statefulset/mysql -- \
 kubectl get pods -n big-data-lab8
 kubectl logs -n big-data-lab8 job/model-submit
 ```
+
+## Замер утилизации ресурсов
+
+Spark job'ы завершаются после выполнения, поэтому заходить в контейнер после
+окончания расчета нельзя: pod уже находится в состоянии `Completed`. Для оценки
+утилизации CPU/RAM используется live-сэмплинг во время работы driver/executor
+pod'ов:
+
+```bash
+./scripts/k8s_build_image.sh
+./scripts/k8s_resource_report.sh
+```
+
+Скрипт последовательно запускает загрузчик источника, витрину и модель, а для
+витрины `lab8-datamart` и модели `lab8-model` снимает live-сэмплы из cgroup
+driver/executor pod'ов. Такой способ успевает зафиксировать короткие Spark job'ы,
+для которых `metrics-server` не всегда успевает обновить `kubectl top pods`.
+Итоговые проценты считаются относительно Kubernetes `requests` каждого
+driver/executor pod'а. Сырые сэмплы сохраняются в
+`outputs/k8s_resource_usage_*.csv`.
+
+Для ручной проверки через `kubectl top` должен работать Metrics API. Для
+Minikube его можно включить так:
+
+```bash
+minikube addons enable metrics-server
+```
+
+В Docker Desktop/kind `metrics-server` часто отсутствует по умолчанию. В таком
+случае установите его для текущего кластера и проверьте, что команда
+`kubectl top pods -n big-data-lab8` возвращает метрики. Скрипт
+`k8s_resource_report.sh` при этом снимает точные live-сэмплы напрямую из cgroup
+Spark pod'ов.
 
 ## Сборка дистрибутива
 

@@ -58,8 +58,10 @@ spark-submit --master k8s://https://kubernetes.default.svc --deploy-mode cluster
 Источник данных перенесен в MySQL `StatefulSet`. Данные инициализируются через
 SQL `ConfigMap`, учетные данные вынесены в Kubernetes `Secret`.
 
-Загрузчик `source-loader-submit` читает `data/sample_openfoodfacts.csv` из Docker
-образа и записывает таблицу `product_nutrition` через JDBC.
+Загрузчик `source-loader-submit` читает файл `data/sample_openfoodfacts.csv`
+из Docker образа и записывает таблицу `product_nutrition` через JDBC. Строки
+загружаются без искусственного размножения: размер таблицы соответствует
+фактическому размеру CSV после чтения входного файла.
 
 ### Этап 3. Витрина данных из лабораторной №7
 
@@ -87,13 +89,61 @@ Scala/Spark-витрина запускается job'ом `datamart-submit`. О
 
 - MySQL: request `250m CPU`, `512Mi`, limit `1 CPU`, `1Gi`;
 - Spark submitter: request `100m CPU`, `256Mi`, limit `500m CPU`, `512Mi`;
-- Spark driver/executor: `1 core`, `1g memory`;
+- Spark driver/executor витрины: request `825m CPU`, limit `1200m CPU`,
+  `480m` heap и `64m` memory overhead;
+- Spark driver/executor модели: request `850m CPU`, limit `1200m CPU`,
+  `480m` heap и `64m` memory overhead;
 - `spark.sql.shuffle.partitions=4` для уменьшения лишних shuffle-задач на малом
   датасете.
 
 MySQL оставлен в одной реплике, так как это stateful-сервис с PVC. Репликация
 вычислений обеспечивается executor pod'ами Spark, что соответствует характеру
 нагрузки лабораторной.
+
+## Замер утилизации ресурсов
+
+Spark-приложения запускаются как Kubernetes `Job` и после успешного завершения
+переходят в состояние `Completed`. Поэтому проверять загрузку через вход в
+контейнер после окончания расчета некорректно: вычисления уже завершены, а
+driver/executor pod'ы освобождают ресурсы.
+
+Для измерения утилизации добавлен скрипт:
+
+```bash
+./scripts/k8s_resource_report.sh
+```
+
+Он запускает загрузчик источника, затем отдельно выполняет витрину
+`lab8-datamart` и модель `lab8-model`. Во время выполнения этих Spark job'ов
+скрипт снимает live-сэмплы CPU/RAM из cgroup driver/executor pod'ов и сохраняет
+их в CSV-файл:
+
+```text
+outputs/k8s_resource_usage_*.csv
+```
+
+В отчете скрипта выводятся средние и максимальные значения CPU/RAM. Проценты
+рассчитываются относительно Kubernetes `requests` каждого driver/executor pod'а.
+Такой способ фиксирует фактическую нагрузку во время работы модели и витрины, а
+не состояние уже завершенного контейнера.
+
+Контрольный запуск после настройки ресурсов сохранил сэмплы в:
+
+```text
+outputs/k8s_resource_usage_20260614_182353.csv
+```
+
+Итоговая средняя CPU-утилизация относительно Kubernetes `requests`:
+
+- витрина `lab8-datamart`: `76.18%`;
+- модель `lab8-model`: `72.63%`.
+
+Память уменьшена до ближайшего стабильного минимума для Spark. При попытке
+запуска с `384m` heap Spark завершался ошибкой:
+
+```text
+System memory 389283840 must be at least 471859200
+```
 
 ## Порядок запуска
 
@@ -131,6 +181,12 @@ MySQL оставлен в одной реплике, так как это statef
 - количество строк в `dm_product_nutrition`;
 - последние записи `dm_refresh_log`;
 - последние результаты `dm_kmeans_clusters`.
+
+Контрольный запуск проверяет фактические таблицы после загрузки:
+
+- `product_nutrition`;
+- `dm_product_nutrition`;
+- silhouette модели.
 
 Дополнительные команды:
 
